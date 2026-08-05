@@ -1,0 +1,30 @@
+name: Daily Training Pipeline
+
+on:
+  schedule:
+    - cron: "30 2 * * *"  # 2:30 AM UTC daily
+  workflow_dispatch: {}
+
+jobs:
+  retrain:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pandas numpy scikit-learn joblib hopsworks python-dotenv
+
+      - name: Retrain models
+        env:
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+        run: python train_from_hopsworks.py
+
+      - name: Push models to registry
+        env:
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+        run: python push_models_to_registry.py

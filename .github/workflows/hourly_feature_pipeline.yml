@@ -1,0 +1,25 @@
+name: Hourly Feature Pipeline
+
+on:
+  schedule:
+    - cron: "5 * * * *"  # 5 minutes past every hour, UTC
+  workflow_dispatch: {}  # allows manual trigger from GitHub UI too
+
+jobs:
+  update-features:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install pandas numpy requests hopsworks python-dotenv
+
+      - name: Run incremental feature pipeline
+        env:
+          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
+        run: python incremental_pipeline.py
