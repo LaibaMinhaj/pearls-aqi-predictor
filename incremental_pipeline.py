@@ -42,10 +42,10 @@ def fetch_window():
 
 
 def build_features(df):
-    df["hour"] = df["time"].dt.hour
-    df["day_of_week"] = df["time"].dt.dayofweek
-    df["month"] = df["time"].dt.month
-    df["is_weekend"] = df["day_of_week"].isin([5, 6]).astype(int)
+    df["hour"] = df["time"].dt.hour.astype("int64")
+    df["day_of_week"] = df["time"].dt.dayofweek.astype("int64")
+    df["month"] = df["time"].dt.month.astype("int64")
+    df["is_weekend"] = df["day_of_week"].isin([5, 6]).astype("int64")
 
     lag_hours = [1, 3, 6, 12, 24, 48, 72]
     lag_columns = ["us_aqi", "pm2_5", "pm10", "temperature_2m", "relative_humidity_2m", "wind_speed_10m"]
