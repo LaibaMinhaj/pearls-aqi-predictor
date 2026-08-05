@@ -16,8 +16,8 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Install dependencies
-        run: pip install pandas numpy requests hopsworks python-dotenv
+      -  name: Install dependencies
+         run: pip install pandas numpy requests hopsworks python-dotenv pyarrow confluent-kafka
 
       - name: Run incremental feature pipeline
         env:
