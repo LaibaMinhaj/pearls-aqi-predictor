@@ -16,14 +16,14 @@ fs = project.get_feature_store()
 
 aqi_fg = fs.get_feature_group(name="karachi_aqi_features", version=1)
 df = aqi_fg.read()
-
 print(f"Read {len(df)} rows from Hopsworks feature group")
 
-# ---- Targets still come from the local CSV for now ----
-targets_df = pd.read_csv("karachi_features.csv", parse_dates=["time"])
-targets_df = targets_df[["time", "target_day1", "target_day2", "target_day3"]]
+targets_fg = fs.get_feature_group(name="karachi_aqi_targets", version=1)
+targets_df = targets_fg.read()
+print(f"Read {len(targets_df)} rows from Hopsworks targets group")
 
 df["time"] = pd.to_datetime(df["time"]).dt.tz_localize(None)
+targets_df["time"] = pd.to_datetime(targets_df["time"]).dt.tz_localize(None)
 df = df.merge(targets_df, on="time", how="inner")
 df = df.sort_values("time").reset_index(drop=True)
 
