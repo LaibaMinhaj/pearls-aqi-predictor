@@ -58,7 +58,9 @@ pip install -r requirements.txt
 ```
 
 Create a `.env` file with:
-HOPSWORKS_API_KEY=F1O8QwPRsin6GO0j.nwtQm1dWJ97z0uNem8LqdAVmxeBIdBQm8khkFN04DJiAuyLcbTBCGiwVycwoMzXN
+```
+HOPSWORKS_API_KEY=your_key_here
+```
 
 
 Run the dashboard:
