@@ -76,7 +76,9 @@ def build_features(df):
     df = df.merge(daily[["date", "target_day1", "target_day2", "target_day3"]], on="date", how="left")
     df = df.drop(columns=["date"])
 
-    return df.dropna().reset_index(drop=True)
+    df = df.dropna().reset_index(drop=True)
+    df["us_aqi"] = df["us_aqi"].astype("int64")  # force back to int64 — API nulls elsewhere in the window can upcast this to float64
+    return df
 
 
 def main():
