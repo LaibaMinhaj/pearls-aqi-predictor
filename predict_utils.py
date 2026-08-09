@@ -46,7 +46,7 @@ def get_model(target_name):
     project = get_project()
     mr = project.get_model_registry()
 
-    model_meta = mr.get_model(name=f"ridge_{target_name}", version=1)
+    model_meta = mr.get_model(name=f"ridge_{target_name}")  # no version = latest available
     model_dir = model_meta.download()
 
     model_path = os.path.join(model_dir, f"ridge_{target_name}_final.joblib")
