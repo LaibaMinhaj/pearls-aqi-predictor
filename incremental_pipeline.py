@@ -5,6 +5,14 @@ import numpy as np
 import hopsworks
 from dotenv import load_dotenv
 
+STATE_FILE = "last_processed_time.txt"
+
+def get_last_processed_time():
+    if os.path.exists(STATE_FILE):
+        with open(STATE_FILE) as f:
+            return pd.Timestamp(f.read().strip())
+    return None  # first run ever — process everything in the window
+
 load_dotenv()
 
 LAT, LON = 24.8607, 67.0011
@@ -87,10 +95,15 @@ def main():
     print(f"Fetched {len(raw_df)} raw hourly rows")
 
     features_df = build_features(raw_df)
-    print(f"{len(features_df)} rows have complete features and are ready to push")
+    print(f"{len(features_df)} rows have complete features")
+
+    last_time = get_last_processed_time()
+    if last_time is not None:
+        features_df = features_df[features_df["time"] > last_time]
+        print(f"{len(features_df)} rows are new since last run ({last_time})")
 
     if len(features_df) == 0:
-        print("No complete rows yet — nothing to push this run.")
+        print("Nothing new to push this run.")
         return
 
     project = hopsworks.login(api_key_value=os.getenv("HOPSWORKS_API_KEY"))
@@ -101,12 +114,12 @@ def main():
 
     aqi_fg = fs.get_feature_group(name="karachi_aqi_features", version=1)
     aqi_fg.insert(features_df[feature_only_cols], write_options={"wait_for_job": True})
-    print(f"Upserted {len(features_df)} rows into karachi_aqi_features")
+    print(f"Upserted {len(features_df)} new rows into karachi_aqi_features")
 
     targets_fg = fs.get_feature_group(name="karachi_aqi_targets", version=1)
     targets_fg.insert(features_df[["time"] + target_cols], write_options={"wait_for_job": True})
-    print(f"Upserted {len(features_df)} rows into karachi_aqi_targets")
+    print(f"Upserted {len(features_df)} new rows into karachi_aqi_targets")
 
-
-if __name__ == "__main__":
-    main()
+    # Save the new high-water mark for next run
+    with open(STATE_FILE, "w") as f:
+        f.write(str(features_df["time"].max()))

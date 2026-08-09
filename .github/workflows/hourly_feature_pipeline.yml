@@ -2,12 +2,14 @@ name: Hourly Feature Pipeline
 
 on:
   schedule:
-    - cron: "5 * * * *"  # 5 minutes past every hour, UTC
-  workflow_dispatch: {}  # allows manual trigger from GitHub UI too
+    - cron: "5 * * * *"
+  workflow_dispatch: {}
 
 jobs:
   update-features:
     runs-on: ubuntu-latest
+    permissions:
+      contents: write
     steps:
       - uses: actions/checkout@v4
 
@@ -16,10 +18,18 @@ jobs:
         with:
           python-version: "3.12"
 
-      -  name: Install dependencies
-         run: pip install pandas numpy requests hopsworks python-dotenv pyarrow confluent-kafka
+      - name: Install dependencies
+        run: pip install pandas numpy requests hopsworks python-dotenv pyarrow confluent-kafka
 
       - name: Run incremental feature pipeline
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
         run: python incremental_pipeline.py
+
+      - name: Commit updated state file
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add last_processed_time.txt
+          git diff --staged --quiet || git commit -m "Update last processed timestamp [skip ci]"
+          git push
