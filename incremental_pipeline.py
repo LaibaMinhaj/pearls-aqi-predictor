@@ -97,29 +97,34 @@ def main():
     features_df = build_features(raw_df)
     print(f"{len(features_df)} rows have complete features")
 
-    last_time = get_last_processed_time()
-    if last_time is not None:
-        features_df = features_df[features_df["time"] > last_time]
-        print(f"{len(features_df)} rows are new since last run ({last_time})")
-
     if len(features_df) == 0:
-        print("Nothing new to push this run.")
+        print("No complete rows in this window at all — nothing to do.")
         return
 
-    project = hopsworks.login(api_key_value=os.getenv("HOPSWORKS_API_KEY"))
-    fs = project.get_feature_store()
+    latest_available_time = features_df["time"].max()
+    last_time = get_last_processed_time()
+    new_rows = features_df if last_time is None else features_df[features_df["time"] > last_time]
+    print(f"{len(new_rows)} rows are new since last run ({last_time})")
 
-    target_cols = ["target_day1", "target_day2", "target_day3"]
-    feature_only_cols = [c for c in features_df.columns if c not in target_cols]
+    if len(new_rows) > 0:
+        project = hopsworks.login(api_key_value=os.getenv("HOPSWORKS_API_KEY"))
+        fs = project.get_feature_store()
 
-    aqi_fg = fs.get_feature_group(name="karachi_aqi_features", version=1)
-    aqi_fg.insert(features_df[feature_only_cols], write_options={"wait_for_job": True})
-    print(f"Upserted {len(features_df)} new rows into karachi_aqi_features")
+        target_cols = ["target_day1", "target_day2", "target_day3"]
+        feature_only_cols = [c for c in new_rows.columns if c not in target_cols]
 
-    targets_fg = fs.get_feature_group(name="karachi_aqi_targets", version=1)
-    targets_fg.insert(features_df[["time"] + target_cols], write_options={"wait_for_job": True})
-    print(f"Upserted {len(features_df)} new rows into karachi_aqi_targets")
+        aqi_fg = fs.get_feature_group(name="karachi_aqi_features", version=1)
+        aqi_fg.insert(new_rows[feature_only_cols], write_options={"wait_for_job": True})
+        print(f"Upserted {len(new_rows)} new rows into karachi_aqi_features")
 
-    # Save the new high-water mark for next run
+        targets_fg = fs.get_feature_group(name="karachi_aqi_targets", version=1)
+        targets_fg.insert(new_rows[["time"] + target_cols], write_options={"wait_for_job": True})
+        print(f"Upserted {len(new_rows)} new rows into karachi_aqi_targets")
+    else:
+        print("Nothing new to push this run.")
+
+    # Always write the state file, regardless of whether new data was pushed —
+    # this guarantees it exists for the commit step every single run
     with open(STATE_FILE, "w") as f:
-        f.write(str(features_df["time"].max()))
+        f.write(str(latest_available_time))
+    print(f"State file updated to {latest_available_time}")
