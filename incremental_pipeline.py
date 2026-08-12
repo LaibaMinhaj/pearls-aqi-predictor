@@ -128,3 +128,5 @@ def main():
     with open(STATE_FILE, "w") as f:
         f.write(str(latest_available_time))
     print(f"State file updated to {latest_available_time}")
+    if __name__ == "__main__":
+    main()
