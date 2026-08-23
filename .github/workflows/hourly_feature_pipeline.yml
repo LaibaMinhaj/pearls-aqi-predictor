@@ -24,7 +24,12 @@ jobs:
       - name: Run incremental feature pipeline
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
-        run: python incremental_pipeline.py
+        run: |
+          for i in 1 2 3; do
+            python incremental_pipeline.py && break
+            echo "Attempt $i failed, retrying in 30s..."
+            sleep 30
+          done
 
       - name: Commit updated state file
         run: |
