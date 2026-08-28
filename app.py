@@ -111,6 +111,7 @@ for col, title, date, key in zip(cols, day_titles, day_dates, target_keys):
             unsafe_allow_html=True,
         )
 st.markdown("#### Why these predictions?")
+st.caption("Based on the linear (Ridge) component of the ensemble model")
 explain_tabs = st.tabs(day_titles)
 for tab, key in zip(explain_tabs, target_keys):
     with tab:
@@ -171,8 +172,8 @@ with st.expander("ℹ️ About this project"):
     st.markdown("""
     - **Historical data**: Open-Meteo (Air Quality + Weather Archive APIs), Jan 2023 – present
     - **Live data**: Open-Meteo (current + forecast APIs)
-    - **Model**: Ridge Regression (selected after comparing Ridge, Random Forest, HistGradientBoosting, and LightGBM)
-    - **Features**: 76 engineered features (lag features, rolling averages, calendar features, current + forecasted weather, current pollutants)
+    - **Model**: Ensemble (Ridge + SVR + CatBoost average) — selected after comparing 6+ model families
+    - **Features**: 92 engineered features (lags, rolling mean/std/min/max, cyclical calendar encoding, current + forecasted weather, current pollutants)
     - **Target**: Calendar-day average AQI (Day 1 / Day 2 / Day 3)
     - **Feature Store**: Hopsworks (features and targets)
     - **Model Registry**: Hopsworks (versioned models)
@@ -180,4 +181,4 @@ with st.expander("ℹ️ About this project"):
     """)
 
 st.divider()
-st.caption("Model: Ridge Regression · Trained on 3.5 years of Karachi historical data · Features and targets stored in Hopsworks Feature Store · Models versioned in Hopsworks Model Registry")
+st.caption("Model: Ridge + SVR + CatBoost ensemble · Trained on 3.5 years of Karachi historical data · Features and targets stored in Hopsworks Feature Store · Models versioned in Hopsworks Model Registry")

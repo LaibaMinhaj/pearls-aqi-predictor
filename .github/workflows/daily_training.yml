@@ -17,24 +17,14 @@ jobs:
           python-version: "3.12"
 
       - name: Install dependencies
-        run: pip install pandas numpy scikit-learn joblib hopsworks python-dotenv pyarrow confluent-kafka
+        run: pip install pandas numpy scikit-learn catboost joblib hopsworks python-dotenv pyarrow confluent-kafka
 
-      - name: Retrain models
+      - name: Retrain and register models
         env:
           HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
         run: |
           for i in 1 2 3; do
-            python train_from_hopsworks.py && break
-            echo "Attempt $i failed, retrying in 30s..."
-            sleep 30
-          done
-
-      - name: Push models to registry
-        env:
-          HOPSWORKS_API_KEY: ${{ secrets.HOPSWORKS_API_KEY }}
-        run: |
-          for i in 1 2 3; do
-            python push_models_to_registry.py && break
+            python train_final_models.py && break
             echo "Attempt $i failed, retrying in 30s..."
             sleep 30
           done

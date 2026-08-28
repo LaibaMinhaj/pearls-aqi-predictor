@@ -2,6 +2,8 @@ import os
 import requests
 import pandas as pd
 import numpy as np
+import shap
+import re
 from datetime import datetime, timezone
 from joblib import load
 import hopsworks
@@ -12,6 +14,7 @@ load_dotenv()
 LAT, LON = 24.8607, 67.0011
 
 _model_cache = {}
+_project = None
 
 
 def aqi_category(aqi):
@@ -29,8 +32,6 @@ def aqi_category(aqi):
         return "Hazardous"
 
 
-_project = None
-
 def get_project():
     global _project
     if _project is None:
@@ -38,31 +39,37 @@ def get_project():
     return _project
 
 
-def get_model(target_name):
-    """Download (once, then cache) a model from the Hopsworks Model Registry."""
+def get_ensemble_and_rmse(target_name):
+    """Load ridge/svr(+scaler)/catboost for a horizon, plus the shared RMSE metric."""
     if target_name in _model_cache:
         return _model_cache[target_name]
 
     project = get_project()
     mr = project.get_model_registry()
 
-    model_meta = mr.get_model(name=f"ridge_{target_name}")  # no version = latest available
-    model_dir = model_meta.download()
+    ridge_meta = mr.get_model(name=f"ridge_{target_name}")
+    ridge = load(os.path.join(ridge_meta.download(), f"ridge_{target_name}_final.joblib"))
 
-    model_path = os.path.join(model_dir, f"ridge_{target_name}_final.joblib")
-    model = load(model_path)
+    svr_meta = mr.get_model(name=f"svr_{target_name}")
+    svr_dir = svr_meta.download()
+    svr = load(os.path.join(svr_dir, "svr.joblib"))
+    scaler = load(os.path.join(svr_dir, "scaler.joblib"))
 
-    _model_cache[target_name] = model
-    return model
+    cb_meta = mr.get_model(name=f"catboost_{target_name}")
+    cb = load(os.path.join(cb_meta.download(), f"catboost_{target_name}_final.joblib"))
+
+    rmse = ridge_meta.training_metrics.get("rmse") if ridge_meta.training_metrics else None
+
+    result = {"ridge": ridge, "svr": svr, "scaler": scaler, "catboost": cb, "rmse": rmse}
+    _model_cache[target_name] = result
+    return result
 
 
 def get_feature_cols():
-    """Feature column order — pulled from the local file saved at training time."""
     return load("models/feature_cols.joblib")
 
 
 def fetch_live_data():
-    """Fetch recent + forecast pollutant and weather data from Open-Meteo."""
     aq_resp = requests.get(
         "https://air-quality-api.open-meteo.com/v1/air-quality",
         params={
@@ -93,7 +100,6 @@ def fetch_live_data():
 
 
 def build_feature_row(df):
-    """Build the exact feature row used at training time, for the most recent valid 'now'."""
     current_hour = pd.Timestamp(datetime.now(timezone.utc)).floor("h").tz_localize(None)
     valid_times = df.loc[df["pm2_5"].notna(), "time"]
     now_time = valid_times[valid_times <= current_hour].max()
@@ -113,8 +119,18 @@ def build_feature_row(df):
             row[f"{col}_lag{lag}h"] = df.loc[idx, col] if idx >= 0 else np.nan
 
     for col in ["us_aqi", "pm2_5"]:
-        row[f"{col}_rollmean_24h"] = df.loc[now_idx - 24:now_idx - 1, col].mean()
+        window = df.loc[now_idx - 24:now_idx - 1, col]
+        row[f"{col}_rollmean_24h"] = window.mean()
         row[f"{col}_rollmean_72h"] = df.loc[now_idx - 72:now_idx - 1, col].mean()
+        row[f"{col}_rollstd_24h"] = window.std()
+        row[f"{col}_rollmin_24h"] = window.min()
+        row[f"{col}_rollmax_24h"] = window.max()
+
+    # Cyclical encoding
+    row["hour_sin"] = np.sin(2 * np.pi * row["hour"] / 24)
+    row["hour_cos"] = np.cos(2 * np.pi * row["hour"] / 24)
+    row["month_sin"] = np.sin(2 * np.pi * row["month"] / 12)
+    row["month_cos"] = np.cos(2 * np.pi * row["month"] / 12)
 
     row["aqi_change_rate_24h"] = row["us_aqi_lag1h"] - row["us_aqi_lag24h"]
 
@@ -132,16 +148,7 @@ def build_feature_row(df):
     return row, now_time
 
 
-# Test-set RMSE per horizon (from Experiment C — used to show a confidence band, not re-derived live)
-MODEL_RMSE = {
-    "target_day1": 9.61,
-    "target_day2": 12.77,
-    "target_day3": 13.41,
-}
-
-
 def predict_all():
-    """Fetch live data, build features, and return day1/day2/day3 average-AQI predictions."""
     df = fetch_live_data()
     row, now_time = build_feature_row(df)
 
@@ -150,15 +157,22 @@ def predict_all():
 
     predictions = {}
     for target_name in ["target_day1", "target_day2", "target_day3"]:
-        model = get_model(target_name)
-        pred = round(float(model.predict(X)[0]), 1)
-        rmse = MODEL_RMSE[target_name]
+        m = get_ensemble_and_rmse(target_name)
+
+        ridge_pred = m["ridge"].predict(X)[0]
+        X_scaled = m["scaler"].transform(X)
+        svr_pred = m["svr"].predict(X_scaled)[0]
+        cb_pred = m["catboost"].predict(X)[0]
+
+        pred = round(float((ridge_pred + svr_pred + cb_pred) / 3), 1)
+        rmse = round(float(m["rmse"]), 2) if m["rmse"] is not None else None
+
         predictions[target_name] = {
             "aqi": pred,
             "category": aqi_category(pred),
             "rmse": rmse,
-            "range_low": round(pred - rmse, 1),
-            "range_high": round(pred + rmse, 1),
+            "range_low": round(pred - rmse, 1) if rmse else None,
+            "range_high": round(pred + rmse, 1) if rmse else None,
         }
 
     current_aqi = round(float(row["us_aqi"]), 1)
@@ -167,84 +181,66 @@ def predict_all():
         "current_aqi": current_aqi,
         "current_category": aqi_category(current_aqi),
         "predictions": predictions,
-        "feature_row": X,  # needed for SHAP explanations
+        "feature_row": X,
     }
-import shap
-
 _background_cache = {}
 
-
 def get_background_data():
-    """Small reference sample from training data, used as SHAP's baseline."""
     if "sample" in _background_cache:
         return _background_cache["sample"]
-
     project = get_project()
     fs = project.get_feature_store()
-    fg = fs.get_feature_group(name="karachi_aqi_features", version=1)
+    fg = fs.get_feature_group(name="karachi_aqi_features", version=2)
     df = fg.read()
     df["time"] = pd.to_datetime(df["time"]).dt.tz_localize(None)
-
     feature_cols = get_feature_cols()
     sample = df[feature_cols].sample(n=200, random_state=42)
-
     _background_cache["sample"] = sample
     return sample
 
-
-import re
-
 BASE_LABELS = {
-    "us_aqi": "AQI",
-    "pm2_5": "PM2.5",
-    "pm10": "PM10",
-    "carbon_monoxide": "CO",
-    "nitrogen_dioxide": "NO2",
-    "sulphur_dioxide": "SO2",
-    "ozone": "Ozone",
-    "temperature_2m": "Temperature",
-    "relative_humidity_2m": "Humidity",
-    "surface_pressure": "Pressure",
-    "wind_speed_10m": "Wind speed",
-    "wind_direction_10m": "Wind direction",
-    "precipitation": "Precipitation",
-    "hour": "Hour of day",
-    "day_of_week": "Day of week",
-    "month": "Month",
-    "is_weekend": "Weekend",
-    "aqi_change_rate_24h": "Recent AQI trend",
+    "us_aqi": "AQI", "pm2_5": "PM2.5", "pm10": "PM10",
+    "carbon_monoxide": "CO", "nitrogen_dioxide": "NO2", "sulphur_dioxide": "SO2",
+    "ozone": "Ozone", "temperature_2m": "Temperature", "relative_humidity_2m": "Humidity",
+    "surface_pressure": "Pressure", "wind_speed_10m": "Wind speed", "wind_direction_10m": "Wind direction",
+    "precipitation": "Precipitation", "hour": "Hour of day", "day_of_week": "Day of week",
+    "month": "Month", "is_weekend": "Weekend", "aqi_change_rate_24h": "Recent AQI trend",
+    "hour_sin": "Hour (cyclical)", "hour_cos": "Hour (cyclical)",
+    "month_sin": "Month (cyclical)", "month_cos": "Month (cyclical)",
 }
-
 
 def friendly_name(feature):
     m = re.match(r"^(.*)_lag(\d+)h$", feature)
     if m:
         base, hrs = m.groups()
         return f"{BASE_LABELS.get(base, base.replace('_', ' '))} ({hrs}h ago)"
-
     m = re.match(r"^(.*)_future(\d+)h$", feature)
     if m:
         base, hrs = m.groups()
         return f"Forecasted {BASE_LABELS.get(base, base.replace('_', ' '))} (+{hrs}h)"
-
     m = re.match(r"^(.*)_rollmean_(\d+)h$", feature)
     if m:
         base, hrs = m.groups()
         return f"{hrs}h average {BASE_LABELS.get(base, base.replace('_', ' '))}"
-
+    m = re.match(r"^(.*)_rollstd_(\d+)h$", feature)
+    if m:
+        base, hrs = m.groups()
+        return f"{hrs}h volatility of {BASE_LABELS.get(base, base.replace('_', ' '))}"
+    m = re.match(r"^(.*)_roll(min|max)_(\d+)h$", feature)
+    if m:
+        base, kind, hrs = m.groups()
+        return f"{hrs}h {kind} {BASE_LABELS.get(base, base.replace('_', ' '))}"
     return BASE_LABELS.get(feature, feature.replace("_", " ").title())
 
-
 def explain_prediction(target_name, X):
-    """Return top increasing/decreasing features for one prediction, in plain language."""
-    model = get_model(target_name)
+    """SHAP explanation using the ensemble's Ridge component (the interpretable one)."""
+    m = get_ensemble_and_rmse(target_name)
     background = get_background_data()
 
-    explainer = shap.LinearExplainer(model, background)
+    explainer = shap.LinearExplainer(m["ridge"], background)
     shap_values = explainer.shap_values(X)[0]
 
     contributions = list(zip(X.columns, shap_values))
-
     increasing = sorted([c for c in contributions if c[1] > 0], key=lambda x: x[1], reverse=True)
     decreasing = sorted([c for c in contributions if c[1] < 0], key=lambda x: x[1])
 
