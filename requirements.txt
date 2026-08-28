@@ -8,3 +8,4 @@ python-dotenv==1.2.2
 hopsworks
 shap==0.52.0
 altair==6.2.2
+catboost
