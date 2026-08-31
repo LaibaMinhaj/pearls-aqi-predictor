@@ -79,3 +79,4 @@ aqi-predictor/
 ├── models/
 │ └── feature_cols.joblib # Feature column order (training/inference consistency)
 └── requirements.txt
+├── experiments/                # exploratory scripts: model comparisons, tuning, error analysis
