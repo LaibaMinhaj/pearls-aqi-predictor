@@ -102,8 +102,5 @@ aqi-predictor/
 ├── incremental_pipeline.py # Hourly automated feature updates
 ├── models/
 │ └── feature_cols.joblib # Feature column order (training/inference consistency)
-├── experiments/ # Model comparisons, tuning, error analysis, negative results
-├── .github/workflows/
-│ ├── hourly_feature_pipeline.yml
-│ └── daily_training.yml
 └── requirements.txt
+├── experiments/                # exploratory scripts: model comparisons, tuning, error analysis
