@@ -7,6 +7,7 @@ __pycache__/
 
 models/*
 !models/feature_cols.joblib
+!models/shap_background.joblib
 
 *.csv
 

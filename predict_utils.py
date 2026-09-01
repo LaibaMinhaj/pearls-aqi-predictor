@@ -5,11 +5,11 @@ import numpy as np
 import shap
 import re
 from datetime import datetime, timezone
-from joblib import load
+from joblib import load, dump
 import hopsworks
 from dotenv import load_dotenv
 
-load_dotenv()
+load_dotenv(override=True)
 
 LAT, LON = 24.8607, 67.0011
 
@@ -188,6 +188,13 @@ _background_cache = {}
 def get_background_data():
     if "sample" in _background_cache:
         return _background_cache["sample"]
+
+    cache_file = "models/shap_background.joblib"
+    if os.path.exists(cache_file):
+        sample = load(cache_file)
+        _background_cache["sample"] = sample
+        return sample
+
     project = get_project()
     fs = project.get_feature_store()
     fg = fs.get_feature_group(name="karachi_aqi_features", version=2)
@@ -195,6 +202,8 @@ def get_background_data():
     df["time"] = pd.to_datetime(df["time"]).dt.tz_localize(None)
     feature_cols = get_feature_cols()
     sample = df[feature_cols].sample(n=200, random_state=42)
+
+    dump(sample, cache_file)
     _background_cache["sample"] = sample
     return sample
 
